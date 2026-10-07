@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { getTicketOwnership, type TicketOwner } from '../../utils/ticketOwnership'
-import type { ColourVariant, PartnerReceipt, TicketStatus } from '../../types'
+import type { PartnerReceipt, TicketStatus } from '../../types'
 
 const props = defineProps<{
-  ticket: { status: TicketStatus; partnerReceipt?: PartnerReceipt; colourVariants: ColourVariant[] }
+  ticket: { status: TicketStatus; partnerReceipt?: PartnerReceipt; lastRejectionReason?: string }
 }>()
 
 const COLOURS: Record<Exclude<TicketOwner, null>, string> = {
