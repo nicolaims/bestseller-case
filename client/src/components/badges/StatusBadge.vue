@@ -10,7 +10,6 @@ const COLOURS: Record<TicketStatus, string> = {
   'In Progress': 'bg-amber-100 text-amber-700',
   Completed: 'bg-teal-100 text-teal-700',
   Approved: 'bg-green-100 text-green-700',
-  Rejected: 'bg-red-100 text-red-700',
 }
 
 const classes = computed(() => COLOURS[props.status])

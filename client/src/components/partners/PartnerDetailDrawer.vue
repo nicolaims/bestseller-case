@@ -19,7 +19,7 @@ useEscapeKey(() => {
 })
 const tickets = computed(() => ticketsStore.tickets.filter((t) => t.partnerId === props.partnerId))
 
-const STATUSES: TicketStatus[] = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved', 'Rejected']
+const STATUSES: TicketStatus[] = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved']
 const counts = computed(() => {
   const result = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<TicketStatus, number>
   for (const t of tickets.value) result[t.status]++
@@ -44,7 +44,7 @@ const counts = computed(() => {
         </button>
       </div>
 
-      <div class="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div class="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-5">
         <div v-for="status in STATUSES" :key="status" class="rounded-md border border-gray-200 p-2 text-center">
           <p class="text-lg font-semibold text-gray-900">{{ counts[status] }}</p>
           <p class="text-xs text-gray-500">{{ status }}</p>

@@ -31,13 +31,11 @@ function partnerName(partnerId: string) {
       <button type="button" class="cursor-pointer font-medium underline" @click="ticketsStore.fetchTickets()">Retry</button>
     </p>
 
-    <div class="mb-8 grid grid-cols-3 gap-4 lg:grid-cols-6">
-      <KpiCard label="Pending" :value="ticketsStore.kpis.Pending" />
+    <div class="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <KpiCard label="Awaiting approval" :value="ticketsStore.kpis.awaitingApproval" />
       <KpiCard label="Sent" :value="ticketsStore.kpis.Sent" />
       <KpiCard label="In Progress" :value="ticketsStore.kpis['In Progress']" />
-      <KpiCard label="Awaiting approval" :value="ticketsStore.kpis.awaitingApproval" />
       <KpiCard label="Approved" :value="ticketsStore.kpis.Approved" />
-      <KpiCard label="Rejected" :value="ticketsStore.kpis.Rejected" />
     </div>
 
     <h2 class="mb-3 text-sm font-medium text-gray-700">Recent activity</h2>

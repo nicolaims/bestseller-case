@@ -4,7 +4,7 @@ import { usePartnersStore } from '../../stores/partners.store'
 import { useTicketsStore } from '../../stores/tickets.store'
 import type { SortBy } from '../../stores/tickets.store'
 
-const STATUSES = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved', 'Rejected'] as const
+const STATUSES = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved'] as const
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const
 const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
   { value: 'recent', label: 'Most recent' },
