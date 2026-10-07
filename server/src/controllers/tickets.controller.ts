@@ -117,28 +117,16 @@ export async function forceAcknowledge(req: Request, res: Response) {
   res.json(await ticketService.forceAcknowledge(req.params.id));
 }
 
-export async function approveVariant(req: Request, res: Response) {
-  const { variantId } = req.body as { variantId?: string };
-  if (!variantId) throw new HttpError(400, 'variantId is required');
+export async function approveTicket(req: Request, res: Response) {
   const role = roleFromHeader(req);
-  const { ticket, approvedPhoto } = await ticketService.approveVariant(req.params.id, variantId, role);
+  const { ticket, approvedPhoto } = await ticketService.approveTicket(req.params.id, role);
   res.json({ ticket, approvedPhoto });
 }
 
-export async function rejectVariant(req: Request, res: Response) {
-  const { variantId, reason } = req.body as { variantId?: string; reason?: string };
-  if (!variantId) throw new HttpError(400, 'variantId is required');
+export async function rejectTicket(req: Request, res: Response) {
+  const { reason } = req.body as { reason?: string };
   if (!reason) throw new HttpError(400, 'A rejection reason is required');
-  const role = roleFromHeader(req);
-  res.json(await ticketService.rejectVariant(req.params.id, variantId, reason, role));
-}
-
-export async function requeueTicket(req: Request, res: Response) {
-  res.json(await ticketService.requeueTicket(req.params.id));
-}
-
-export async function requeueVariant(req: Request, res: Response) {
-  res.json(await ticketService.requeueVariant(req.params.id, req.params.variantId));
+  res.json(await ticketService.rejectTicket(req.params.id, reason));
 }
 
 export async function addColourVariant(req: Request, res: Response) {
