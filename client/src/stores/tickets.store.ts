@@ -12,7 +12,7 @@ export interface TicketFilters {
   search?: string
 }
 
-const STATUS_ORDER: TicketStatus[] = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved', 'Rejected']
+const STATUS_ORDER: TicketStatus[] = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved']
 const PRIORITY_ORDER: Priority[] = ['Urgent', 'High', 'Medium', 'Low']
 
 export type SortBy = 'recent' | 'priority'
@@ -39,11 +39,11 @@ export const useTicketsStore = defineStore('tickets', {
         ? filtered.sort((a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority))
         : filtered.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     },
-    /** Status counts for the dashboard KPI cards; "awaiting approval" mirrors Completed. */
+    /** Status counts for the dashboard KPI cards; "awaiting approval" mirrors Pending, since the Manager now reviews a ticket before it's sent. */
     kpis: (state) => {
       const counts = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0])) as Record<TicketStatus, number>
       for (const t of state.tickets) counts[t.status]++
-      return { ...counts, awaitingApproval: counts.Completed, total: state.tickets.length }
+      return { ...counts, awaitingApproval: counts.Pending, total: state.tickets.length }
     },
     recentlyUpdated: (state) =>
       [...state.tickets].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5),
@@ -79,26 +79,17 @@ export const useTicketsStore = defineStore('tickets', {
     async completeTicket(id: string) {
       await this.runAction(() => api.post<Ticket>(`/tickets/${id}/complete`), 'Marked as completed by the partner.')
     },
-    async approveVariant(ticketId: string, variantId: string, variantName: string) {
+    async approveTicket(ticketId: string) {
       await this.runAction(
-        () => api.post<{ ticket: Ticket }>(`/tickets/${ticketId}/approve`, { variantId }),
-        `"${variantName}" approved — added to Approved Library.`,
+        () => api.post<{ ticket: Ticket }>(`/tickets/${ticketId}/approve`),
+        'Ticket approved — added to Approved Library.',
       )
       await useApprovedPhotosStore().fetchApprovedPhotos()
     },
-    async rejectVariant(ticketId: string, variantId: string, variantName: string, reason: string) {
+    async rejectTicket(ticketId: string, reason: string) {
       await this.runAction(
-        () => api.post<Ticket>(`/tickets/${ticketId}/reject`, { variantId, reason }),
-        `"${variantName}" rejected.`,
-      )
-    },
-    async requeueTicket(id: string) {
-      await this.runAction(() => api.post<Ticket>(`/tickets/${id}/requeue`), 'Returned to queue.')
-    },
-    async requeueVariant(ticketId: string, variantId: string) {
-      await this.runAction(
-        () => api.post<Ticket>(`/tickets/${ticketId}/variants/${variantId}/requeue`),
-        'Colour returned to queue.',
+        () => api.post<Ticket>(`/tickets/${ticketId}/reject`, { reason }),
+        'Ticket rejected — back with the Operator.',
       )
     },
     async forceAcknowledge(id: string) {
