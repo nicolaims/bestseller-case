@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { nanoid } from 'nanoid';
 import { SOURCE_TICKETS_DIR, SEED_UPLOADS_DIR } from '../config.js';
 import { saveDb } from './jsonDb.js';
-import type { Db, Ticket, Partner, ColourVariant, TicketStatus } from '../types/index.js';
+import type { Db, Ticket, Partner, ColourVariant, TicketStatus, ApprovedPhoto } from '../types/index.js';
 
 interface SeedTicketSpec {
   folder: string; // e.g. "Ticket 1"
@@ -142,6 +142,7 @@ function copyTicketAssets(spec: SeedTicketSpec): {
 
 export function buildSeedDb(): Db {
   const partners: Partner[] = SEED_PARTNER_NAMES.map((name) => ({ id: nanoid(), name }));
+  const approvedPhotos: ApprovedPhoto[] = [];
 
   const tickets: Ticket[] = SEED_TICKETS.map((spec, index) => {
     const assets = copyTicketAssets(spec);
@@ -154,7 +155,6 @@ export function buildSeedDb(): Db {
       type: v.type,
       pantone: v.pantone,
       referenceImagePath: v.referenceImageFile ? assets.referenceImages[v.referenceImageFile] : undefined,
-      decision: 'pending',
     }));
 
     const ticket: Ticket = {
@@ -181,10 +181,16 @@ export function buildSeedDb(): Db {
       ticket.partnerReceipt = { sentAt: now, acknowledgedAt: now, receiptStatus: 'Received' };
     }
 
+    // Any ticket seeded past Pending has, by definition, already cleared the
+    // Manager's pre-send approval gate, so give it an Approved Library record.
+    if (spec.status !== 'Pending') {
+      approvedPhotos.push({ id: nanoid(), ticketId: ticket.id, approvedBy: 'Manager', approvedAt: now });
+    }
+
     return ticket;
   });
 
-  return { tickets, partners, approvedPhotos: [] };
+  return { tickets, partners, approvedPhotos };
 }
 
 export async function seedIfMissing(): Promise<void> {
