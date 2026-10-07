@@ -5,14 +5,11 @@ export type TicketStatus =
   | 'Sent'
   | 'In Progress'
   | 'Completed'
-  | 'Approved'
-  | 'Rejected';
+  | 'Approved';
 
 export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent';
 
 export type VariantType = 'solid' | 'aop';
-
-export type VariantDecision = 'pending' | 'approved' | 'rejected';
 
 export interface ColourVariant {
   id: string;
@@ -20,10 +17,6 @@ export interface ColourVariant {
   type: VariantType;
   pantone?: string;
   referenceImagePath?: string;
-  decision: VariantDecision;
-  decisionReason?: string;
-  decidedBy?: Role;
-  decidedAt?: string;
 }
 
 export interface PartnerReceipt {
@@ -53,6 +46,7 @@ export interface Ticket {
   updatedAt: string;
   partnerReceipt?: PartnerReceipt;
   notes?: string;
+  lastRejectionReason?: string;
 }
 
 export interface Partner {
@@ -63,8 +57,6 @@ export interface Partner {
 export interface ApprovedPhoto {
   id: string;
   ticketId: string;
-  variantId: string;
-  imagePath: string;
   approvedBy: Role;
   approvedAt: string;
 }

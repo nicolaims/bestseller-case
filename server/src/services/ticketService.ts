@@ -1,19 +1,18 @@
 import { nanoid } from 'nanoid';
 import { loadDb, withDb } from '../db/jsonDb.js';
 import { HttpError } from '../types/index.js';
-import type { Ticket, TicketStatus, Role, ColourVariant, Priority, BasePhotos } from '../types/index.js';
+import type { Ticket, TicketStatus, Role, ApprovedPhoto, Priority, BasePhotos, ColourVariant } from '../types/index.js';
 
-/** Allowed status transitions. "Approved"/"Rejected" are reached automatically
- * once every colour variant has a decision (see `recomputeStatus`), not via a
- * direct status-setting call. Rejected tickets return to Pending via an
- * explicit `requeue` call rather than auto-collapsing. */
+/** Allowed status transitions. A Manager approves/rejects the whole ticket
+ * while it's Pending, before anything is sent to the partner. A rejection is
+ * not a transition — it stamps `lastRejectionReason` and leaves the ticket on
+ * Pending, ready to be edited and resubmitted. */
 const VALID_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
-  Pending: ['Sent'],
+  Pending: ['Approved'],
+  Approved: ['Sent'],
   Sent: ['In Progress'],
   'In Progress': ['Completed'],
-  Completed: ['Approved', 'Rejected'],
-  Approved: [],
-  Rejected: ['Pending'],
+  Completed: [],
 };
 
 const PARTNER_ACK_DELAY_MS = 5000;
@@ -26,19 +25,6 @@ function assertTransition(ticket: Ticket, next: TicketStatus) {
 
 function touch(ticket: Ticket) {
   ticket.updatedAt = new Date().toISOString();
-}
-
-/** Re-derives the ticket's overall status from its variants' individual
- * decisions. Stays "Completed" while any variant is still undecided, so the
- * ticket remains actionable in the queue until every colour has been reviewed. */
-function recomputeStatus(ticket: Ticket) {
-  if (ticket.status !== 'Completed' && ticket.status !== 'Approved' && ticket.status !== 'Rejected') return;
-  const stillPending = ticket.colourVariants.some((v) => v.decision === 'pending');
-  if (stillPending) {
-    ticket.status = 'Completed';
-  } else {
-    ticket.status = ticket.colourVariants.some((v) => v.decision === 'approved') ? 'Approved' : 'Rejected';
-  }
 }
 
 /** Simulates the partner's response to a sent ticket. A small chance of a
@@ -94,7 +80,7 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
       style: input.style,
       productNumber: input.productNumber,
       basePhotos: input.basePhotos,
-      colourVariants: input.colourVariants.map((v) => ({ id: nanoid(), decision: 'pending', ...v })),
+      colourVariants: input.colourVariants.map((v) => ({ id: nanoid(), ...v })),
       priority: input.priority,
       partnerId: input.partnerId,
       status: 'Pending',
@@ -139,9 +125,10 @@ export interface AddVariantInput {
   referenceImagePath?: string;
 }
 
-/** Appends a newly requested colour to an existing ticket. If the ticket had
- * already finished review (Approved/Rejected), it reopens to Completed since
- * there's now a fresh colour awaiting a decision. */
+/** Appends a newly requested colour to an existing ticket. Blocked once the
+ * ticket has been sent to the partner, since they're already working from
+ * the agreed colour list. If the ticket had already been Approved (but not
+ * yet sent), it reopens to Pending since there's now unreviewed content. */
 export async function addColourVariant(ticketId: string, input: AddVariantInput): Promise<Ticket> {
   if (!input.name.trim()) throw new HttpError(400, 'A colour/pattern name is required');
 
@@ -149,9 +136,14 @@ export async function addColourVariant(ticketId: string, input: AddVariantInput)
     const ticket = db.tickets.find((t) => t.id === ticketId);
     if (!ticket) throw new HttpError(404, `Ticket ${ticketId} not found`);
 
-    ticket.colourVariants.push({ id: nanoid(), decision: 'pending', ...input });
-    if (ticket.status === 'Approved' || ticket.status === 'Rejected') {
-      ticket.status = 'Completed';
+    if (ticket.status === 'Sent' || ticket.status === 'In Progress' || ticket.status === 'Completed') {
+      throw new HttpError(409, `Cannot add a colour once the ticket has been sent to the partner (currently "${ticket.status}")`);
+    }
+
+    ticket.colourVariants.push({ id: nanoid(), ...input });
+    if (ticket.status === 'Approved') {
+      ticket.status = 'Pending';
+      ticket.lastRejectionReason = undefined;
     }
     touch(ticket);
     return ticket;
@@ -243,108 +235,42 @@ export async function completeTicket(id: string): Promise<Ticket> {
   });
 }
 
-function getPendingVariant(ticket: Ticket, variantId: string): ColourVariant {
-  const variant = ticket.colourVariants.find((v) => v.id === variantId);
-  if (!variant) throw new HttpError(404, `Colour variant ${variantId} not found on ticket ${ticket.id}`);
-  if (ticket.status !== 'Completed') {
-    throw new HttpError(409, `Ticket must be Completed before its colours can be reviewed (currently "${ticket.status}")`);
-  }
-  if (variant.decision !== 'pending') {
-    throw new HttpError(409, `Colour "${variant.name}" has already been ${variant.decision}`);
-  }
-  return variant;
-}
-
-export async function approveVariant(
-  ticketId: string,
-  variantId: string,
-  approvedBy: Role,
-): Promise<{ ticket: Ticket; approvedPhoto: Ticket['colourVariants'][number] }> {
+/** Manager approves the whole ticket (request + requested colours) before
+ * it's sent to the partner. Creates the Approved Library record and clears
+ * any earlier rejection. */
+export async function approveTicket(ticketId: string, approvedBy: Role): Promise<{ ticket: Ticket; approvedPhoto: ApprovedPhoto }> {
   return withDb((db) => {
     const ticket = db.tickets.find((t) => t.id === ticketId);
     if (!ticket) throw new HttpError(404, `Ticket ${ticketId} not found`);
-    const variant = getPendingVariant(ticket, variantId);
+    assertTransition(ticket, 'Approved');
 
-    const now = new Date().toISOString();
-    variant.decision = 'approved';
-    variant.decidedBy = approvedBy;
-    variant.decidedAt = now;
-
-    db.approvedPhotos.push({
+    const approvedPhoto: ApprovedPhoto = {
       id: nanoid(),
       ticketId: ticket.id,
-      variantId: variant.id,
-      imagePath: variant.referenceImagePath ?? ticket.basePhotos.front,
       approvedBy,
-      approvedAt: now,
-    });
+      approvedAt: new Date().toISOString(),
+    };
+    db.approvedPhotos.push(approvedPhoto);
 
-    recomputeStatus(ticket);
+    ticket.status = 'Approved';
+    ticket.lastRejectionReason = undefined;
     touch(ticket);
-    return { ticket, approvedPhoto: variant };
+    return { ticket, approvedPhoto };
   });
 }
 
-export async function rejectVariant(ticketId: string, variantId: string, reason: string, rejectedBy: Role): Promise<Ticket> {
+/** Manager rejects the ticket before it's sent to the partner. The ticket
+ * stays Pending so the Operator can edit it and resubmit; the reason is
+ * stamped on the ticket rather than modeled as a separate status. */
+export async function rejectTicket(ticketId: string, reason: string): Promise<Ticket> {
   return withDb((db) => {
     const ticket = db.tickets.find((t) => t.id === ticketId);
     if (!ticket) throw new HttpError(404, `Ticket ${ticketId} not found`);
-    const variant = getPendingVariant(ticket, variantId);
-
-    variant.decision = 'rejected';
-    variant.decisionReason = reason;
-    variant.decidedBy = rejectedBy;
-    variant.decidedAt = new Date().toISOString();
-
-    recomputeStatus(ticket);
-    touch(ticket);
-    return ticket;
-  });
-}
-
-/** Reopens a fully-rejected ticket: clears every variant's decision and
- * restarts the pipeline from Pending, ready to be sent again. */
-export async function requeueTicket(id: string): Promise<Ticket> {
-  return withDb((db) => {
-    const ticket = db.tickets.find((t) => t.id === id);
-    if (!ticket) throw new HttpError(404, `Ticket ${id} not found`);
-    assertTransition(ticket, 'Pending');
-
-    for (const variant of ticket.colourVariants) {
-      variant.decision = 'pending';
-      variant.decisionReason = undefined;
-      variant.decidedBy = undefined;
-      variant.decidedAt = undefined;
-    }
-    ticket.status = 'Pending';
-    ticket.partnerReceipt = undefined;
-    touch(ticket);
-    return ticket;
-  });
-}
-
-/** Reopens a single rejected variant for re-review, without touching any
- * other variant's decision, then recomputes the ticket's overall status —
- * this is the per-variant equivalent of `requeueTicket`, needed because the
- * ticket flips to "Approved" as soon as no variant is left pending even if
- * one of them was actually rejected, leaving that variant with no path back
- * into the queue otherwise. */
-export async function requeueVariant(ticketId: string, variantId: string): Promise<Ticket> {
-  return withDb((db) => {
-    const ticket = db.tickets.find((t) => t.id === ticketId);
-    if (!ticket) throw new HttpError(404, `Ticket ${ticketId} not found`);
-    const variant = ticket.colourVariants.find((v) => v.id === variantId);
-    if (!variant) throw new HttpError(404, `Colour variant ${variantId} not found on ticket ${ticketId}`);
-    if (variant.decision !== 'rejected') {
-      throw new HttpError(409, `Colour "${variant.name}" is not rejected`);
+    if (ticket.status !== 'Pending') {
+      throw new HttpError(409, `Ticket must be Pending to be reviewed (currently "${ticket.status}")`);
     }
 
-    variant.decision = 'pending';
-    variant.decisionReason = undefined;
-    variant.decidedBy = undefined;
-    variant.decidedAt = undefined;
-
-    recomputeStatus(ticket);
+    ticket.lastRejectionReason = reason;
     touch(ticket);
     return ticket;
   });
