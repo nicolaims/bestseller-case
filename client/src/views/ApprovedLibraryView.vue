@@ -1,35 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useApprovedPhotosStore } from '../stores/approvedPhotos.store'
 import { useTicketsStore } from '../stores/tickets.store'
 import ApprovedTicketCard from '../components/approved/ApprovedTicketCard.vue'
-import type { ApprovedPhoto } from '../types'
+import TicketDetailDrawer from '../components/tickets/TicketDetailDrawer.vue'
 
 const approvedPhotosStore = useApprovedPhotosStore()
 const ticketsStore = useTicketsStore()
+const selectedTicketId = ref<string | null>(null)
 
 onMounted(() => {
   approvedPhotosStore.fetchApprovedPhotos()
   if (!ticketsStore.loaded) ticketsStore.fetchTickets()
 })
 
-/** Approved photos are per colour variant, but the ticket is the unit of
- * approval — group them back into one card per ticket. */
-const groups = computed(() => {
-  const byTicket = new Map<string, ApprovedPhoto[]>()
-  for (const photo of approvedPhotosStore.approvedPhotos) {
-    const list = byTicket.get(photo.ticketId) ?? []
-    list.push(photo)
-    byTicket.set(photo.ticketId, list)
-  }
-  return [...byTicket.entries()]
-    .map(([ticketId, photos]) => ({
-      ticket: ticketsStore.tickets.find((t) => t.id === ticketId),
-      photos,
+const approvedTickets = computed(() =>
+  approvedPhotosStore.approvedPhotos
+    .map((approval) => ({
+      ticket: ticketsStore.tickets.find((t) => t.id === approval.ticketId),
+      approval,
     }))
-    .filter((group): group is { ticket: NonNullable<typeof group.ticket>; photos: ApprovedPhoto[] } => !!group.ticket)
-    .sort((a, b) => b.photos[0].approvedAt.localeCompare(a.photos[0].approvedAt))
-})
+    .filter((group): group is { ticket: NonNullable<typeof group.ticket>; approval: typeof group.approval } => !!group.ticket)
+    .sort((a, b) => b.approval.approvedAt.localeCompare(a.approval.approvedAt)),
+)
 </script>
 
 <template>
@@ -42,8 +35,16 @@ const groups = computed(() => {
       </button>
     </p>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <ApprovedTicketCard v-for="group in groups" :key="group.ticket.id" :ticket="group.ticket" :photos="group.photos" />
+      <ApprovedTicketCard
+        v-for="group in approvedTickets"
+        :key="group.ticket.id"
+        :ticket="group.ticket"
+        :approval="group.approval"
+        @open="selectedTicketId = group.ticket.id"
+      />
     </div>
-    <p v-if="groups.length === 0" class="text-gray-400">No approved photos yet.</p>
+    <p v-if="approvedTickets.length === 0" class="text-gray-400">No approved tickets yet.</p>
+
+    <TicketDetailDrawer :ticket-id="selectedTicketId" @close="selectedTicketId = null" />
   </div>
 </template>
