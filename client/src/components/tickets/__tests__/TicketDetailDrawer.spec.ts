@@ -15,12 +15,12 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
     productNumber: '123',
     basePhotos: { front: '/front.jpg' },
     colourVariants: [
-      { id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita', decision: 'pending' },
-      { id: 'v2', name: 'Fuchsia', type: 'solid', pantone: 'Fuchsia', decision: 'pending' },
+      { id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita' },
+      { id: 'v2', name: 'Fuchsia', type: 'solid', pantone: 'Fuchsia' },
     ],
     priority: 'Medium',
     partnerId: 'p1',
-    status: 'Completed',
+    status: 'Pending',
     createdBy: 'Operator',
     createdAt: now,
     updatedAt: now,
@@ -36,29 +36,29 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('TicketDetailDrawer — approve/reject flow', () => {
-  it('lets a Manager approve a pending variant on a Completed ticket', async () => {
+describe('TicketDetailDrawer — ticket approve/reject flow', () => {
+  it('lets a Manager approve a Pending ticket', async () => {
     const ticketsStore = useTicketsStore()
     ticketsStore.tickets = [makeTicket()]
     useRoleStore().setRole('Manager')
-    const approveSpy = vi.spyOn(ticketsStore, 'approveVariant').mockResolvedValue({} as never)
+    const approveSpy = vi.spyOn(ticketsStore, 'approveTicket').mockResolvedValue(undefined as never)
 
     const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
-    const approveButton = wrapper.findAll('button').find((b) => b.text() === 'Approve')
+    const approveButton = wrapper.findAll('button').find((b) => b.text() === 'Approve ticket')
     expect(approveButton).toBeTruthy()
     await approveButton!.trigger('click')
 
-    expect(approveSpy).toHaveBeenCalledWith('t1', 'v1', 'Granita')
+    expect(approveSpy).toHaveBeenCalledWith('t1')
   })
 
-  it('lets a Manager reject a variant after entering a reason', async () => {
+  it('lets a Manager reject a ticket after entering a reason', async () => {
     const ticketsStore = useTicketsStore()
     ticketsStore.tickets = [makeTicket()]
     useRoleStore().setRole('Manager')
-    const rejectSpy = vi.spyOn(ticketsStore, 'rejectVariant').mockResolvedValue({} as never)
+    const rejectSpy = vi.spyOn(ticketsStore, 'rejectTicket').mockResolvedValue(undefined as never)
 
     const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
-    const rejectButton = wrapper.findAll('button').find((b) => b.text() === 'Reject')
+    const rejectButton = wrapper.findAll('button').find((b) => b.text() === 'Reject ticket')
     await rejectButton!.trigger('click')
 
     const textarea = wrapper.find('textarea')
@@ -66,7 +66,7 @@ describe('TicketDetailDrawer — approve/reject flow', () => {
     const confirmButton = wrapper.findAll('button').find((b) => b.text().includes('Confirm reject'))
     await confirmButton!.trigger('click')
 
-    expect(rejectSpy).toHaveBeenCalledWith('t1', 'v1', 'Granita', 'Wrong tone')
+    expect(rejectSpy).toHaveBeenCalledWith('t1', 'Wrong tone')
   })
 
   it('does not show approve/reject actions to an Operator', () => {
@@ -75,38 +75,36 @@ describe('TicketDetailDrawer — approve/reject flow', () => {
     useRoleStore().setRole('Operator')
 
     const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
-    expect(wrapper.findAll('button').some((b) => b.text() === 'Approve')).toBe(false)
-  })
-})
-
-describe('TicketDetailDrawer — per-variant requeue', () => {
-  it('shows a requeue action for a rejected variant even though the ticket overall is Approved', () => {
-    const ticketsStore = useTicketsStore()
-    const ticket = makeTicket({ status: 'Approved' })
-    ticket.colourVariants[0].decision = 'approved'
-    ticket.colourVariants[1].decision = 'rejected'
-    ticket.colourVariants[1].decisionReason = 'Colour off'
-    ticketsStore.tickets = [ticket]
-
-    const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
-
-    const requeueButton = wrapper.findAll('button').find((b) => b.text() === 'Requeue this colour')
-    expect(requeueButton).toBeTruthy()
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Approve ticket')).toBe(false)
   })
 
-  it('calls ticketsStore.requeueVariant scoped to that one variant', async () => {
+  it('does not show approve/reject actions once the ticket is past Pending', () => {
     const ticketsStore = useTicketsStore()
-    const ticket = makeTicket({ status: 'Approved' })
-    ticket.colourVariants[0].decision = 'approved'
-    ticket.colourVariants[1].decision = 'rejected'
-    ticketsStore.tickets = [ticket]
-    const requeueSpy = vi.spyOn(ticketsStore, 'requeueVariant').mockResolvedValue(undefined as never)
+    ticketsStore.tickets = [makeTicket({ status: 'Approved' })]
+    useRoleStore().setRole('Manager')
 
     const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
-    const requeueButton = wrapper.findAll('button').find((b) => b.text() === 'Requeue this colour')
-    await requeueButton!.trigger('click')
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Approve ticket')).toBe(false)
+  })
 
-    expect(requeueSpy).toHaveBeenCalledWith('t1', 'v2')
+  it('shows the Manager rejection reason on a bounced-back Pending ticket', () => {
+    const ticketsStore = useTicketsStore()
+    ticketsStore.tickets = [makeTicket({ lastRejectionReason: 'Wrong tone' })]
+
+    const wrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
+    expect(wrapper.text()).toContain('Rejected by the Manager: Wrong tone')
+  })
+
+  it('only offers "Send to partner" once the ticket is Approved', () => {
+    const ticketsStore = useTicketsStore()
+    ticketsStore.tickets = [makeTicket({ status: 'Pending' })]
+
+    const pendingWrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
+    expect(pendingWrapper.findAll('button').some((b) => b.text() === 'Send to partner')).toBe(false)
+
+    ticketsStore.tickets = [makeTicket({ status: 'Approved' })]
+    const approvedWrapper = mount(TicketDetailDrawer, { props: { ticketId: 't1' } })
+    expect(approvedWrapper.findAll('button').some((b) => b.text() === 'Send to partner')).toBe(true)
   })
 })
 

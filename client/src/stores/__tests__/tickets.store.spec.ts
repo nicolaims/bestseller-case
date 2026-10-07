@@ -24,7 +24,7 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
     style: 'ABC',
     productNumber: '123',
     basePhotos: { front: '/front.jpg' },
-    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita', decision: 'pending' }],
+    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita' }],
     priority: 'Medium',
     partnerId: 'p1',
     status: 'Pending',
@@ -93,13 +93,13 @@ describe('approve / reject flow', () => {
   it('replaces the ticket and pushes a success toast on approve', async () => {
     const store = useTicketsStore()
     const notifications = useNotificationsStore()
-    store.tickets = [makeTicket({ status: 'Completed' })]
+    store.tickets = [makeTicket({ status: 'Pending' })]
     const approved = makeTicket({ status: 'Approved' })
-    approved.colourVariants[0].decision = 'approved'
-    postMock.mockResolvedValueOnce({ ticket: approved, approvedPhoto: approved.colourVariants[0] })
+    postMock.mockResolvedValueOnce({ ticket: approved, approvedPhoto: { id: 'ap1', ticketId: 't1', approvedBy: 'Manager', approvedAt: new Date().toISOString() } })
 
-    await store.approveVariant('t1', 'v1', 'Granita')
+    await store.approveTicket('t1')
 
+    expect(postMock).toHaveBeenCalledWith('/tickets/t1/approve')
     expect(store.tickets[0].status).toBe('Approved')
     expect(notifications.toasts.some((t) => t.type === 'success')).toBe(true)
   })
@@ -107,24 +107,11 @@ describe('approve / reject flow', () => {
   it('pushes an error toast and rethrows when reject fails', async () => {
     const store = useTicketsStore()
     const notifications = useNotificationsStore()
-    store.tickets = [makeTicket({ status: 'Completed' })]
-    postMock.mockRejectedValueOnce(new ApiError(409, 'Already decided'))
+    store.tickets = [makeTicket({ status: 'Pending' })]
+    postMock.mockRejectedValueOnce(new ApiError(409, 'Ticket must be Pending to be reviewed'))
 
-    await expect(store.rejectVariant('t1', 'v1', 'Granita', 'wrong tone')).rejects.toThrow('Already decided')
-    expect(notifications.toasts.some((t) => t.type === 'error' && t.message === 'Already decided')).toBe(true)
-  })
-})
-
-describe('requeueVariant', () => {
-  it('calls the per-variant requeue endpoint and replaces the ticket', async () => {
-    const store = useTicketsStore()
-    store.tickets = [makeTicket({ status: 'Approved' })]
-    const requeued = makeTicket({ status: 'Completed' })
-    postMock.mockResolvedValueOnce(requeued)
-
-    await store.requeueVariant('t1', 'v1')
-
-    expect(postMock).toHaveBeenCalledWith('/tickets/t1/variants/v1/requeue')
-    expect(store.tickets[0].status).toBe('Completed')
+    await expect(store.rejectTicket('t1', 'wrong tone')).rejects.toThrow('Ticket must be Pending to be reviewed')
+    expect(postMock).toHaveBeenCalledWith('/tickets/t1/reject', { reason: 'wrong tone' })
+    expect(notifications.toasts.some((t) => t.type === 'error' && t.message === 'Ticket must be Pending to be reviewed')).toBe(true)
   })
 })

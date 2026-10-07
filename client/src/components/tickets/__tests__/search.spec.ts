@@ -15,7 +15,7 @@ function makeTicket(photoId: string): Ticket {
     style,
     productNumber,
     basePhotos: { front: '/front.jpg' },
-    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita', decision: 'pending' }],
+    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita' }],
     priority: 'Medium',
     partnerId: 'p1',
     status: 'Pending',

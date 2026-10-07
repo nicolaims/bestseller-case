@@ -14,7 +14,7 @@ function makeTicket(id: string, overrides: Partial<Ticket> = {}): Ticket {
     style: id,
     productNumber: '000',
     basePhotos: { front: '/front.jpg' },
-    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita', decision: 'pending' }],
+    colourVariants: [{ id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita' }],
     priority: 'Medium',
     partnerId: 'p1',
     status: 'Pending',

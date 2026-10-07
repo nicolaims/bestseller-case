@@ -1,22 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import { getTicketOwnership } from '../ticketOwnership'
-import type { ColourVariant, TicketStatus } from '../../types'
-
-function makeVariant(decision: ColourVariant['decision']): ColourVariant {
-  return { id: 'v1', name: 'Granita', type: 'solid', pantone: 'Granita', decision }
-}
+import type { TicketStatus } from '../../types'
 
 function makeTicket(status: TicketStatus, overrides: Partial<Parameters<typeof getTicketOwnership>[0]> = {}) {
   return {
     status,
-    colourVariants: [makeVariant('pending')],
     ...overrides,
   }
 }
 
 describe('getTicketOwnership', () => {
-  it('is with the Operator and ready to send when Pending', () => {
+  it('is with the Manager, awaiting approval, when Pending with no prior rejection', () => {
     expect(getTicketOwnership(makeTicket('Pending'))).toEqual({
+      owner: 'Manager',
+      nextStepLabel: 'Awaiting manager approval',
+    })
+  })
+
+  it('falls back to the Operator with the reason when Pending after a rejection', () => {
+    expect(getTicketOwnership(makeTicket('Pending', { lastRejectionReason: 'Wrong tone' }))).toEqual({
+      owner: 'Operator',
+      nextStepLabel: 'Rejected by Manager: Wrong tone',
+    })
+  })
+
+  it('is with the Operator, ready to send, when Approved', () => {
+    expect(getTicketOwnership(makeTicket('Approved'))).toEqual({
       owner: 'Operator',
       nextStepLabel: 'Ready to send to partner',
     })
@@ -45,28 +54,10 @@ describe('getTicketOwnership', () => {
     })
   })
 
-  it('is with the Manager when Completed and reports the decided/total count', () => {
-    expect(
-      getTicketOwnership(
-        makeTicket('Completed', { colourVariants: [makeVariant('approved'), makeVariant('pending')] }),
-      ),
-    ).toEqual({
-      owner: 'Manager',
-      nextStepLabel: 'Awaiting manager review (1/2 colours decided)',
-    })
-  })
-
-  it('has no owner when Approved', () => {
-    expect(getTicketOwnership(makeTicket('Approved'))).toEqual({
+  it('has no owner when Completed', () => {
+    expect(getTicketOwnership(makeTicket('Completed'))).toEqual({
       owner: null,
-      nextStepLabel: 'Approved — no action needed',
-    })
-  })
-
-  it('is back with the Operator when Rejected', () => {
-    expect(getTicketOwnership(makeTicket('Rejected'))).toEqual({
-      owner: 'Operator',
-      nextStepLabel: 'Needs requeue before work can continue',
+      nextStepLabel: 'Done',
     })
   })
 })
