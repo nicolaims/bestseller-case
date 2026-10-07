@@ -47,6 +47,11 @@ async function onApprove(variant: ColourVariant) {
   await run(() => ticketsStore.approveVariant(ticket.value!.id, variant.id, variant.name))
 }
 
+async function onRequeueVariant(variant: ColourVariant) {
+  if (!ticket.value) return
+  await run(() => ticketsStore.requeueVariant(ticket.value!.id, variant.id))
+}
+
 function startReject(variantId: string) {
   rejectingVariantId.value = variantId
   rejectReason.value = ''
@@ -191,6 +196,16 @@ async function submitNewVariant() {
             {{ variant.decisionReason }}
           </p>
 
+          <button
+            v-if="variant.decision === 'rejected'"
+            type="button"
+            :disabled="busy"
+            class="mt-1.5 w-full cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="onRequeueVariant(variant)"
+          >
+            Requeue this colour
+          </button>
+
           <div v-if="rejectingVariantId === variant.id" class="mt-2 space-y-1.5">
             <textarea
               v-model="rejectReason"
@@ -279,6 +294,14 @@ async function submitNewVariant() {
         <span v-if="ticket.partnerReceipt.sentAt"> · sent {{ new Date(ticket.partnerReceipt.sentAt).toLocaleTimeString() }}</span>
       </div>
 
+      <p
+        v-if="ticket.status === 'Sent' && ticket.partnerReceipt?.receiptStatus === 'Rejected'"
+        class="mb-4 rounded-md bg-red-50 p-2 text-xs text-red-700"
+      >
+        The partner rejected this receipt, so the ticket is stuck on "Sent". Use "Force acknowledge" below to unstick
+        it, or resend.
+      </p>
+
       <div class="space-y-2">
         <button
           v-if="ticket.status === 'Pending'"
@@ -296,6 +319,15 @@ async function submitNewVariant() {
           @click="run(() => ticketsStore.completeTicket(ticket!.id))"
         >
           {{ busy ? 'Completing…' : 'Simulate complete' }}
+        </button>
+
+        <button
+          v-if="ticket.status === 'Sent'"
+          :disabled="busy"
+          class="w-full cursor-pointer rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          @click="run(() => ticketsStore.forceAcknowledge(ticket!.id))"
+        >
+          {{ busy ? 'Marking…' : 'Force acknowledge' }}
         </button>
 
         <button

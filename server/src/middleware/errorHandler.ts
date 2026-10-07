@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { MulterError } from 'multer';
 import { HttpError } from '../types/index.js';
+import type { Role } from '../types/index.js';
 
 export function asyncHandler(fn: (req: Request, res: Response) => Promise<void> | void): RequestHandler {
   return (req, res, next) => {
@@ -8,7 +9,7 @@ export function asyncHandler(fn: (req: Request, res: Response) => Promise<void> 
   };
 }
 
-export function requireRole(role: 'Manager') {
+export function requireRole(role: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const actorRole = req.header('x-role');
     if (actorRole !== role) {

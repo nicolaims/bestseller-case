@@ -35,6 +35,12 @@ const groups = computed(() => {
 <template>
   <div>
     <h1 class="mb-6 text-xl font-semibold text-gray-900">Approved Library</h1>
+    <p v-if="approvedPhotosStore.loadError" class="mb-4 flex items-center justify-between rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+      {{ approvedPhotosStore.loadError }}
+      <button type="button" class="cursor-pointer font-medium underline" @click="approvedPhotosStore.fetchApprovedPhotos()">
+        Retry
+      </button>
+    </p>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <ApprovedTicketCard v-for="group in groups" :key="group.ticket.id" :ticket="group.ticket" :photos="group.photos" />
     </div>

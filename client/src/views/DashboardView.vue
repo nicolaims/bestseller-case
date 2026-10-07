@@ -25,6 +25,11 @@ function partnerName(partnerId: string) {
   <div>
     <h1 class="mb-6 text-xl font-semibold text-gray-900">Dashboard</h1>
 
+    <p v-if="ticketsStore.loadError" class="mb-4 flex items-center justify-between rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+      {{ ticketsStore.loadError }}
+      <button type="button" class="cursor-pointer font-medium underline" @click="ticketsStore.fetchTickets()">Retry</button>
+    </p>
+
     <div class="mb-8 grid grid-cols-3 gap-4 lg:grid-cols-6">
       <KpiCard label="Pending" :value="ticketsStore.kpis.Pending" />
       <KpiCard label="Sent" :value="ticketsStore.kpis.Sent" />

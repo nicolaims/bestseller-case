@@ -4,6 +4,19 @@ import { uploadedPath } from '../middleware/upload.js';
 import { HttpError } from '../types/index.js';
 import type { ColourVariant, Priority, Role } from '../types/index.js';
 
+const VALID_PRIORITIES: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
+const VALID_VARIANT_TYPES: Array<ColourVariant['type']> = ['solid', 'aop'];
+const VALID_ROLES: Role[] = ['Operator', 'Manager'];
+
+function roleFromHeader(req: Request): Role {
+  const header = req.header('x-role');
+  if (header === undefined) return 'Operator';
+  if (!VALID_ROLES.includes(header as Role)) {
+    throw new HttpError(400, `Invalid x-role header "${header}"`);
+  }
+  return header as Role;
+}
+
 function filesByFieldname(req: Request): Record<string, Express.Multer.File> {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   const map: Record<string, Express.Multer.File> = {};
@@ -26,7 +39,7 @@ export function getTicket(req: Request, res: Response) {
   res.json(ticketService.getTicket(req.params.id));
 }
 
-export function createTicket(req: Request, res: Response) {
+export async function createTicket(req: Request, res: Response) {
   const body = req.body as Record<string, string>;
   const files = filesByFieldname(req);
 
@@ -35,6 +48,9 @@ export function createTicket(req: Request, res: Response) {
   }
   if (!body.priority || !body.partnerId) {
     throw new HttpError(400, 'priority and partnerId are required');
+  }
+  if (!VALID_PRIORITIES.includes(body.priority as Priority)) {
+    throw new HttpError(400, `Invalid priority "${body.priority}"`);
   }
 
   let rawVariants: Array<{ name: string; type: 'solid' | 'aop'; pantone?: string }>;
@@ -47,17 +63,23 @@ export function createTicket(req: Request, res: Response) {
     throw new HttpError(400, 'At least one colour variant is required');
   }
 
-  const colourVariants: Array<Pick<ColourVariant, 'name' | 'type' | 'pantone' | 'referenceImagePath'>> =
-    rawVariants.map((v, index) => ({
-      name: v.name,
-      type: v.type,
-      pantone: v.type === 'solid' ? v.pantone : undefined,
-      referenceImagePath: v.type === 'aop' ? uploadedPath(files[`variantRef_${index}`]) : undefined,
-    }));
+  const colourVariants: Array<Pick<ColourVariant, 'name' | 'type' | 'pantone' | 'referenceImagePath'>> = rawVariants.map(
+    (v, index) => {
+      if (!VALID_VARIANT_TYPES.includes(v.type)) {
+        throw new HttpError(400, `Invalid colour variant type "${v.type}"`);
+      }
+      return {
+        name: v.name,
+        type: v.type,
+        pantone: v.type === 'solid' ? v.pantone : undefined,
+        referenceImagePath: v.type === 'aop' ? uploadedPath(files[`variantRef_${index}`]) : undefined,
+      };
+    },
+  );
 
-  const role = (req.header('x-role') as Role) || 'Operator';
+  const role = roleFromHeader(req);
 
-  const ticket = ticketService.createTicket({
+  const ticket = await ticketService.createTicket({
     style: body.style,
     productNumber: body.productNumber,
     priority: body.priority as Priority,
@@ -75,46 +97,60 @@ export function createTicket(req: Request, res: Response) {
   res.status(201).json(ticket);
 }
 
-export function updateTicket(req: Request, res: Response) {
+export async function updateTicket(req: Request, res: Response) {
   const body = req.body as { priority?: Priority; partnerId?: string; notes?: string };
-  res.json(ticketService.updateTicket(req.params.id, body));
+  if (body.priority && !VALID_PRIORITIES.includes(body.priority)) {
+    throw new HttpError(400, `Invalid priority "${body.priority}"`);
+  }
+  res.json(await ticketService.updateTicket(req.params.id, body));
 }
 
-export function sendToPartner(req: Request, res: Response) {
-  res.json(ticketService.sendToPartner(req.params.id));
+export async function sendToPartner(req: Request, res: Response) {
+  res.json(await ticketService.sendToPartner(req.params.id));
 }
 
-export function completeTicket(req: Request, res: Response) {
-  res.json(ticketService.completeTicket(req.params.id));
+export async function completeTicket(req: Request, res: Response) {
+  res.json(await ticketService.completeTicket(req.params.id));
 }
 
-export function approveVariant(req: Request, res: Response) {
+export async function forceAcknowledge(req: Request, res: Response) {
+  res.json(await ticketService.forceAcknowledge(req.params.id));
+}
+
+export async function approveVariant(req: Request, res: Response) {
   const { variantId } = req.body as { variantId?: string };
   if (!variantId) throw new HttpError(400, 'variantId is required');
-  const role = (req.header('x-role') as Role) || 'Operator';
-  const { ticket, approvedPhoto } = ticketService.approveVariant(req.params.id, variantId, role);
+  const role = roleFromHeader(req);
+  const { ticket, approvedPhoto } = await ticketService.approveVariant(req.params.id, variantId, role);
   res.json({ ticket, approvedPhoto });
 }
 
-export function rejectVariant(req: Request, res: Response) {
+export async function rejectVariant(req: Request, res: Response) {
   const { variantId, reason } = req.body as { variantId?: string; reason?: string };
   if (!variantId) throw new HttpError(400, 'variantId is required');
   if (!reason) throw new HttpError(400, 'A rejection reason is required');
-  const role = (req.header('x-role') as Role) || 'Operator';
-  res.json(ticketService.rejectVariant(req.params.id, variantId, reason, role));
+  const role = roleFromHeader(req);
+  res.json(await ticketService.rejectVariant(req.params.id, variantId, reason, role));
 }
 
-export function requeueTicket(req: Request, res: Response) {
-  res.json(ticketService.requeueTicket(req.params.id));
+export async function requeueTicket(req: Request, res: Response) {
+  res.json(await ticketService.requeueTicket(req.params.id));
 }
 
-export function addColourVariant(req: Request, res: Response) {
+export async function requeueVariant(req: Request, res: Response) {
+  res.json(await ticketService.requeueVariant(req.params.id, req.params.variantId));
+}
+
+export async function addColourVariant(req: Request, res: Response) {
   const body = req.body as { name?: string; type?: 'solid' | 'aop'; pantone?: string };
   const files = filesByFieldname(req);
 
   if (!body.name || !body.type) throw new HttpError(400, 'name and type are required');
+  if (!VALID_VARIANT_TYPES.includes(body.type)) {
+    throw new HttpError(400, `Invalid colour variant type "${body.type}"`);
+  }
 
-  const ticket = ticketService.addColourVariant(req.params.id, {
+  const ticket = await ticketService.addColourVariant(req.params.id, {
     name: body.name,
     type: body.type,
     pantone: body.type === 'solid' ? body.pantone : undefined,

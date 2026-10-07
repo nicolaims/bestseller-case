@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { MAX_UPLOAD_SIZE_BYTES } from '../../constants'
 
 const props = defineProps<{ label: string; required?: boolean; compact?: boolean }>()
 const model = defineModel<File | null>({ default: null })
@@ -7,6 +8,7 @@ const model = defineModel<File | null>({ default: null })
 const inputRef = ref<HTMLInputElement>()
 const previewUrl = ref<string | null>(null)
 const dragOver = ref(false)
+const sizeError = ref('')
 
 watch(
   model,
@@ -22,18 +24,33 @@ onBeforeUnmount(() => {
 
 const fileSize = computed(() => (model.value ? `${(model.value.size / 1024 / 1024).toFixed(1)} MB` : ''))
 
+function acceptFile(file: File) {
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    sizeError.value = `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB, which is over the 25MB limit.`
+    return
+  }
+  sizeError.value = ''
+  model.value = file
+}
+
 function onChange(event: Event) {
-  model.value = (event.target as HTMLInputElement).files?.[0] ?? null
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) acceptFile(file)
+  else {
+    sizeError.value = ''
+    model.value = null
+  }
 }
 
 function onDrop(event: DragEvent) {
   dragOver.value = false
   const file = event.dataTransfer?.files?.[0]
-  if (file && file.type.startsWith('image/')) model.value = file
+  if (file && file.type.startsWith('image/')) acceptFile(file)
 }
 
 function clear() {
   model.value = null
+  sizeError.value = ''
   if (inputRef.value) inputRef.value.value = ''
 }
 </script>
@@ -89,5 +106,7 @@ function clear() {
         Remove
       </button>
     </div>
+
+    <p v-if="sizeError" class="mt-1 text-xs text-red-600">{{ sizeError }}</p>
   </div>
 </template>

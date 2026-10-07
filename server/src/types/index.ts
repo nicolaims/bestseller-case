@@ -29,7 +29,7 @@ export interface ColourVariant {
 export interface PartnerReceipt {
   sentAt?: string;
   acknowledgedAt?: string;
-  receiptStatus?: 'Pending' | 'Acknowledged' | 'Received';
+  receiptStatus?: 'Pending' | 'Acknowledged' | 'Received' | 'Rejected';
 }
 
 export interface BasePhotos {

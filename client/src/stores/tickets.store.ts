@@ -23,6 +23,7 @@ export const useTicketsStore = defineStore('tickets', {
     filters: {} as TicketFilters,
     sortBy: 'recent' as SortBy,
     loaded: false,
+    loadError: null as string | null,
   }),
   getters: {
     filteredTickets: (state) => {
@@ -49,8 +50,14 @@ export const useTicketsStore = defineStore('tickets', {
   },
   actions: {
     async fetchTickets() {
-      this.tickets = await api.get<Ticket[]>('/tickets')
-      this.loaded = true
+      this.loadError = null
+      try {
+        this.tickets = await api.get<Ticket[]>('/tickets')
+        this.loaded = true
+      } catch (error) {
+        this.loadError = error instanceof ApiError ? error.message : 'Failed to load tickets.'
+        useNotificationsStore().push(this.loadError, 'error')
+      }
     },
     replaceTicket(ticket: Ticket) {
       const index = this.tickets.findIndex((t) => t.id === ticket.id)
@@ -88,6 +95,18 @@ export const useTicketsStore = defineStore('tickets', {
     async requeueTicket(id: string) {
       await this.runAction(() => api.post<Ticket>(`/tickets/${id}/requeue`), 'Returned to queue.')
     },
+    async requeueVariant(ticketId: string, variantId: string) {
+      await this.runAction(
+        () => api.post<Ticket>(`/tickets/${ticketId}/variants/${variantId}/requeue`),
+        'Colour returned to queue.',
+      )
+    },
+    async forceAcknowledge(id: string) {
+      await this.runAction(
+        () => api.post<Ticket>(`/tickets/${id}/force-ack`),
+        'Manually marked as acknowledged by the partner.',
+      )
+    },
     async addColourVariant(id: string, formData: FormData) {
       await this.runAction(() => api.post<Ticket>(`/tickets/${id}/variants`, formData), 'Colour added to ticket.')
     },
@@ -107,9 +126,10 @@ export const useTicketsStore = defineStore('tickets', {
     },
     /** Polls the ticket a few times after a simulated send, so the UI picks
      * up the partner's delayed acknowledgement (Sent -> In Progress) without
-     * a manual refresh. Stops early once the status has moved on. */
+     * a manual refresh. Stops early once the status has moved on, either to
+     * a success (In Progress) or a simulated partner rejection receipt. */
     pollUntilAcknowledged(id: string, attempt = 0) {
-      if (attempt >= 5) return
+      const maxAttempts = 5
       setTimeout(async () => {
         const ticket = this.tickets.find((t) => t.id === id)
         if (!ticket || ticket.status !== 'Sent') return
@@ -120,10 +140,21 @@ export const useTicketsStore = defineStore('tickets', {
             useNotificationsStore().push('Partner acknowledged receipt — now in progress.', 'success')
             return
           }
-        } catch {
-          // Transient poll failure is not worth surfacing to the user.
+          if (fresh.partnerReceipt?.receiptStatus === 'Rejected') {
+            useNotificationsStore().push(
+              'Partner rejected the receipt — the ticket is stuck on "Sent". Use "Force acknowledge" to unstick it, or resend.',
+              'error',
+            )
+            return
+          }
+        } catch (error) {
+          if (attempt >= maxAttempts - 1) {
+            const message = error instanceof ApiError ? error.message : 'Could not confirm partner acknowledgement.'
+            useNotificationsStore().push(message, 'error')
+            return
+          }
         }
-        this.pollUntilAcknowledged(id, attempt + 1)
+        if (attempt < maxAttempts - 1) this.pollUntilAcknowledged(id, attempt + 1)
       }, 1500)
     },
   },
