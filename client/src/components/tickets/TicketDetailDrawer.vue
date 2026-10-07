@@ -7,7 +7,9 @@ import { useLightboxStore } from '../../stores/lightbox.store'
 import { useEscapeKey } from '../../composables/useEscapeKey'
 import StatusBadge from '../badges/StatusBadge.vue'
 import PriorityBadge from '../badges/PriorityBadge.vue'
+import OwnerBadge from '../badges/OwnerBadge.vue'
 import PhotoUploadField from './PhotoUploadField.vue'
+import { getTicketOwnership } from '../../utils/ticketOwnership'
 import type { ColourVariant, VariantType } from '../../types'
 
 const props = defineProps<{ ticketId: string | null }>()
@@ -105,10 +107,12 @@ async function submitNewVariant() {
         </button>
       </div>
 
-      <div class="mb-4 flex items-center gap-2">
+      <div class="mb-1 flex items-center gap-2">
         <StatusBadge :status="ticket.status" />
         <PriorityBadge :priority="ticket.priority" />
+        <OwnerBadge :ticket="ticket" />
       </div>
+      <p class="mb-4 text-xs text-gray-500">{{ getTicketOwnership(ticket).nextStepLabel }}</p>
 
       <p class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Style (original photos)</p>
       <div class="mb-4 grid grid-cols-3 gap-2">
