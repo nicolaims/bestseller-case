@@ -10,7 +10,7 @@ import PriorityBadge from '../badges/PriorityBadge.vue'
 import OwnerBadge from '../badges/OwnerBadge.vue'
 import PhotoUploadField from './PhotoUploadField.vue'
 import { getTicketOwnership } from '../../utils/ticketOwnership'
-import type { ColourVariant, VariantType } from '../../types'
+import type { VariantType } from '../../types'
 
 const props = defineProps<{ ticketId: string | null }>()
 const emit = defineEmits<{ close: [] }>()
@@ -30,7 +30,7 @@ useEscapeKey(() => {
 })
 
 const busy = ref(false)
-const rejectingVariantId = ref<string | null>(null)
+const rejecting = ref(false)
 const rejectReason = ref('')
 
 async function run(action: () => Promise<void>) {
@@ -44,25 +44,20 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-async function onApprove(variant: ColourVariant) {
+async function onApproveTicket() {
   if (!ticket.value) return
-  await run(() => ticketsStore.approveVariant(ticket.value!.id, variant.id, variant.name))
+  await run(() => ticketsStore.approveTicket(ticket.value!.id))
 }
 
-async function onRequeueVariant(variant: ColourVariant) {
-  if (!ticket.value) return
-  await run(() => ticketsStore.requeueVariant(ticket.value!.id, variant.id))
-}
-
-function startReject(variantId: string) {
-  rejectingVariantId.value = variantId
+function startReject() {
+  rejecting.value = true
   rejectReason.value = ''
 }
 
-async function confirmReject(variant: ColourVariant) {
+async function confirmRejectTicket() {
   if (!ticket.value || !rejectReason.value.trim()) return
-  await run(() => ticketsStore.rejectVariant(ticket.value!.id, variant.id, variant.name, rejectReason.value.trim()))
-  rejectingVariantId.value = null
+  await run(() => ticketsStore.rejectTicket(ticket.value!.id, rejectReason.value.trim()))
+  rejecting.value = false
   rejectReason.value = ''
 }
 
@@ -114,6 +109,13 @@ async function submitNewVariant() {
       </div>
       <p class="mb-4 text-xs text-gray-500">{{ getTicketOwnership(ticket).nextStepLabel }}</p>
 
+      <p
+        v-if="ticket.lastRejectionReason"
+        class="mb-4 rounded-md bg-red-50 p-2 text-xs text-red-700"
+      >
+        Rejected by the Manager: {{ ticket.lastRejectionReason }}
+      </p>
+
       <p class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">Style (original photos)</p>
       <div class="mb-4 grid grid-cols-3 gap-2">
         <div>
@@ -164,79 +166,55 @@ async function submitNewVariant() {
               <p class="font-medium text-gray-900">{{ variant.name }}</p>
               <p class="text-xs text-gray-500">{{ variant.type === 'solid' ? variant.pantone : 'AOP pattern' }}</p>
             </div>
-            <span
-              v-if="variant.decision === 'approved'"
-              class="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
-            >
-              Approved
-            </span>
-            <span
-              v-else-if="variant.decision === 'rejected'"
-              class="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
-            >
-              Rejected
-            </span>
-
-            <template v-if="variant.decision === 'pending' && ticket.status === 'Completed' && roleStore.isManager">
-              <button
-                type="button"
-                :disabled="busy"
-                class="shrink-0 cursor-pointer rounded bg-green-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                @click="onApprove(variant)"
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                class="shrink-0 cursor-pointer rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
-                @click="startReject(variant.id)"
-              >
-                Reject
-              </button>
-            </template>
-          </div>
-
-          <p v-if="variant.decision === 'rejected' && variant.decisionReason" class="mt-1.5 rounded bg-red-50 p-1.5 text-xs text-red-700">
-            {{ variant.decisionReason }}
-          </p>
-
-          <button
-            v-if="variant.decision === 'rejected'"
-            type="button"
-            :disabled="busy"
-            class="mt-1.5 w-full cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            @click="onRequeueVariant(variant)"
-          >
-            Requeue this colour
-          </button>
-
-          <div v-if="rejectingVariantId === variant.id" class="mt-2 space-y-1.5">
-            <textarea
-              v-model="rejectReason"
-              rows="2"
-              placeholder="Reason for rejecting this colour"
-              class="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs transition-colors focus:border-gray-400"
-            />
-            <div class="flex gap-1.5">
-              <button
-                type="button"
-                :disabled="busy || !rejectReason.trim()"
-                class="flex-1 cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                @click="confirmReject(variant)"
-              >
-                {{ busy ? 'Rejecting…' : 'Confirm reject' }}
-              </button>
-              <button
-                type="button"
-                class="flex-1 cursor-pointer rounded-md border border-gray-300 px-2 py-1 text-xs transition-colors hover:bg-gray-50"
-                @click="rejectingVariantId = null"
-              >
-                Cancel
-              </button>
-            </div>
           </div>
         </li>
       </ul>
+
+      <div v-if="ticket.status === 'Pending' && roleStore.isManager" class="mb-4 space-y-1.5">
+        <div class="flex gap-2">
+          <button
+            type="button"
+            :disabled="busy"
+            class="flex-1 cursor-pointer rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="onApproveTicket"
+          >
+            Approve ticket
+          </button>
+          <button
+            type="button"
+            class="flex-1 cursor-pointer rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50"
+            @click="startReject"
+          >
+            Reject ticket
+          </button>
+        </div>
+
+        <div v-if="rejecting" class="space-y-1.5">
+          <textarea
+            v-model="rejectReason"
+            rows="2"
+            placeholder="Reason for rejecting this ticket"
+            class="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs transition-colors focus:border-gray-400"
+          />
+          <div class="flex gap-1.5">
+            <button
+              type="button"
+              :disabled="busy || !rejectReason.trim()"
+              class="flex-1 cursor-pointer rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              @click="confirmRejectTicket"
+            >
+              {{ busy ? 'Rejecting…' : 'Confirm reject' }}
+            </button>
+            <button
+              type="button"
+              class="flex-1 cursor-pointer rounded-md border border-gray-300 px-2 py-1 text-xs transition-colors hover:bg-gray-50"
+              @click="rejecting = false"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div v-if="roleStore.isOperator" class="mb-4">
         <button
@@ -308,7 +286,7 @@ async function submitNewVariant() {
 
       <div class="space-y-2">
         <button
-          v-if="ticket.status === 'Pending'"
+          v-if="ticket.status === 'Approved'"
           :disabled="busy"
           class="w-full cursor-pointer rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
           @click="run(() => ticketsStore.sendToPartner(ticket!.id))"
@@ -332,15 +310,6 @@ async function submitNewVariant() {
           @click="run(() => ticketsStore.forceAcknowledge(ticket!.id))"
         >
           {{ busy ? 'Marking…' : 'Force acknowledge' }}
-        </button>
-
-        <button
-          v-if="ticket.status === 'Rejected'"
-          :disabled="busy"
-          class="w-full cursor-pointer rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-          @click="run(() => ticketsStore.requeueTicket(ticket!.id))"
-        >
-          {{ busy ? 'Returning…' : 'Return to queue' }}
         </button>
       </div>
     </div>
