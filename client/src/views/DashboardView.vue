@@ -5,6 +5,7 @@ import { usePartnersStore } from '../stores/partners.store'
 import KpiCard from '../components/dashboard/KpiCard.vue'
 import StatusBadge from '../components/badges/StatusBadge.vue'
 import PriorityBadge from '../components/badges/PriorityBadge.vue'
+import OwnerBadge from '../components/badges/OwnerBadge.vue'
 import TicketDetailDrawer from '../components/tickets/TicketDetailDrawer.vue'
 
 const ticketsStore = useTicketsStore()
@@ -67,6 +68,7 @@ function partnerName(partnerId: string) {
         <span class="shrink-0 text-gray-500">{{ partnerName(ticket.partnerId) }}</span>
         <span class="shrink-0 text-gray-500">{{ new Date(ticket.updatedAt).toLocaleString() }}</span>
         <StatusBadge :status="ticket.status" />
+        <OwnerBadge :ticket="ticket" />
       </button>
       <p v-if="ticketsStore.tickets.length === 0" class="px-4 py-6 text-center text-gray-400">No tickets yet.</p>
     </div>
