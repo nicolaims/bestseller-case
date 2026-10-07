@@ -1,6 +1,6 @@
 # Recolour Request Tool
 
-Internal tool for managing "recolour ticket" requests. A garment photo set gets a ticket, the ticket is sent to an external colour partner, and the result is approved or rejected into an Approved Photos library.
+Internal tool for managing "recolour ticket" requests. A garment photo set gets a ticket, a Manager approves or rejects it, and an approved ticket is sent to an external colour partner and tracked through to completion.
 
 Stack: Vue 3 (Vite, TypeScript, Pinia, Vue Router, Tailwind CSS) on the frontend, Express (TypeScript) on the backend. There's no database; everything is persisted to a JSON file on disk.
 
@@ -29,11 +29,12 @@ npm run seed
 
 - **Monorepo.** npm workspaces split `server/` and `client/`. There's no shared package, so types are duplicated in `server/src/types` and `client/src/types`; the project is small enough that a shared package would add more ceremony than it saves.
 - **Persistence.** A single `db.json` holds tickets, partners, and approved photos, read and written through `server/src/db/jsonDb.ts`. Writes go through an in-memory promise queue, because the partner-send simulation runs a `setTimeout` that reloads and mutates the file later and shouldn't be allowed to race a concurrent request.
-- **Ticket status is a state machine**, defined in `server/src/services/ticketService.ts`: `Pending → Sent → In Progress → Completed → Approved | Rejected`. Rejection requeues explicitly (`Rejected → Pending`) rather than auto-transitioning, and invalid transitions return `409`.
+- **Ticket status is a state machine**, defined in `server/src/services/ticketService.ts`: `Pending → Approved → Sent → In Progress → Completed`. A Manager reviews the whole ticket while it's `Pending`, before anything is sent to the partner. Rejecting it stamps a reason (`lastRejectionReason`) and bounces the ticket straight back to `Pending` rather than parking it in its own `Rejected` status. Invalid transitions return `409`.
 - **Partner integration is simulated.** Clicking "Send to partner" flips the ticket to `Sent` and schedules a 5-second delayed flip to `In Progress`, standing in for an async webhook acknowledgement. "Simulate complete" is a manual button rather than a second timer, so the flow can be demoed on demand instead of waiting it out.
 - **Roles aren't real auth.** There's no login. The frontend keeps the current role (`Operator` or `Manager`) in a Pinia store persisted to `localStorage` and sends it as an `x-role` header on every request. The server does still enforce it server-side: `approve` and `reject` return `403` without the `Manager` role, so the restriction isn't just a hidden button in the UI.
-- **Approval happens per colour variant, not per ticket.** Each variant gets its own approve/reject decision, and each approved variant creates its own `ApprovedPhoto` record. The ticket's overall status is derived from its variants in `recomputeStatus` (`ticketService.ts`): it stays `Completed` while any variant is still undecided, and only becomes `Approved` or `Rejected` once every variant has one. That models a ticket as one photoshoot with several requested colours, where each colour can be accepted or sent back on its own.
-- **There's no real recolour rendering.** An approved photo's `imagePath` just reuses the ticket's existing front photo (or the AOP reference swatch). No image-generation step exists, so approval is a status and record change, not a pixel transformation.
+- **Approval is per ticket, not per colour.** A Manager approves or rejects the whole ticket in one decision, which creates a single `ApprovedPhoto` record and files the ticket into the Approved Library. Requested colours are just descriptive data (name, pantone, reference image) once approval has moved to the ticket level.
+- **Who has a ticket is derived, not stored.** `client/src/utils/ticketOwnership.ts` maps a ticket's status (plus its partner receipt and any rejection reason) to an owner — `Operator`, `Manager`, `Partner`, or none — and a plain-English next step. That drives the owner badge shown wherever a ticket appears, and the quick-filter chips ("With: Manager", "With: Partner", …) on the Ticket Queue.
+- **There's no real recolour rendering.** An approved ticket's `ApprovedPhoto` record is just an approval stamp (who, when); no image-generation step exists, so approval is a status and record change, not a pixel transformation.
 - **File uploads** (new ticket photos, AOP reference swatches) go through `multer` into `server/uploads/tickets/`, capped at 25MB so catalogue-resolution JPEGs like the ones in the seed data fit comfortably.
 
 ## Assumptions
@@ -60,6 +61,6 @@ Right now the "role" is just a header the client sets itself (`x-role: Manager`)
 
 ### Everything else left out
 
-- **Real recolour rendering.** Approving a variant reuses an existing photo or reference swatch as the "approved" image instead of generating a new one. This tool models the *workflow* around a recolour request, not the colour-rendering step itself.
-- **Consistent role enforcement.** Only `approve` and `reject` check the `Manager` role server-side; `send`, `complete`, and `requeue` have no role guard at all. A production system would apply the same check uniformly across every status-changing route once real auth is in place.
+- **Real recolour rendering.** This tool models the *workflow* around a recolour request, not the colour-rendering step itself — there's no image-generation step anywhere.
+- **Consistent role enforcement.** Only `approve` and `reject` check the `Manager` role server-side; `send`, `complete`, and `force-ack` have no role guard at all. A production system would apply the same check uniformly across every status-changing route once real auth is in place.
 - **Shared types and fuller test coverage.** Types are duplicated between `server` and `client` instead of living in a shared workspace package, and the test suite covers the ticket state machine plus one client component rather than every controller, route, or an end-to-end flow.
