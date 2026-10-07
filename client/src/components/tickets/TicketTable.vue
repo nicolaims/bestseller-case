@@ -3,6 +3,7 @@ import { usePartnersStore } from '../../stores/partners.store'
 import { useLightboxStore } from '../../stores/lightbox.store'
 import StatusBadge from '../badges/StatusBadge.vue'
 import PriorityBadge from '../badges/PriorityBadge.vue'
+import OwnerBadge from '../badges/OwnerBadge.vue'
 import type { Ticket } from '../../types'
 
 withDefaults(defineProps<{ tickets: Ticket[]; showPartner?: boolean }>(), { showPartner: true })
@@ -58,7 +59,12 @@ function partnerName(partnerId: string) {
         </td>
         <td class="px-4 py-2"><PriorityBadge :priority="ticket.priority" /></td>
         <td v-if="showPartner" class="px-4 py-2 text-gray-600">{{ partnerName(ticket.partnerId) }}</td>
-        <td class="px-4 py-2"><StatusBadge :status="ticket.status" /></td>
+        <td class="px-4 py-2">
+          <div class="flex flex-col gap-1">
+            <StatusBadge :status="ticket.status" />
+            <OwnerBadge :ticket="ticket" />
+          </div>
+        </td>
         <td class="px-4 py-2 text-gray-500">{{ new Date(ticket.updatedAt).toLocaleString() }}</td>
       </tr>
       <tr v-if="tickets.length === 0">
