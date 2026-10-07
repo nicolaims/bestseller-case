@@ -20,10 +20,9 @@ const {
   createTicket,
   sendToPartner,
   completeTicket,
-  approveVariant,
-  rejectVariant,
-  requeueTicket,
-  requeueVariant,
+  approveTicket,
+  rejectTicket,
+  addColourVariant,
   forceAcknowledge,
   getTicket,
 } = await import('../ticketService.js');
@@ -61,11 +60,10 @@ describe('createTicket', () => {
     await expect(createTicket({ ...validInput(), partnerId: 'does-not-exist' })).rejects.toThrow(HttpError);
   });
 
-  it('creates a Pending ticket with one colour variant per input and no decision yet', async () => {
+  it('creates a Pending ticket with one colour variant per input', async () => {
     const ticket = await createTicket(validInput());
     expect(ticket.status).toBe('Pending');
     expect(ticket.colourVariants).toHaveLength(1);
-    expect(ticket.colourVariants[0].decision).toBe('pending');
   });
 });
 
@@ -75,119 +73,75 @@ describe('status transitions', () => {
     await expect(completeTicket(ticket.id)).rejects.toThrow(/Cannot move ticket from "Pending" to "Completed"/);
   });
 
-  it('allows the documented Pending -> Sent transition', async () => {
+  it('refuses to send a ticket to the partner before a Manager has approved it', async () => {
     const ticket = await createTicket(validInput());
+    await expect(sendToPartner(ticket.id)).rejects.toThrow(/Cannot move ticket from "Pending" to "Sent"/);
+  });
+
+  it('allows the documented Pending -> Approved -> Sent transition', async () => {
+    const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
     const sent = await sendToPartner(ticket.id);
     expect(sent.status).toBe('Sent');
     expect(sent.partnerReceipt?.receiptStatus).toBe('Pending');
   });
 });
 
-describe('per-variant approval', () => {
-  it('keeps the ticket Completed while any variant is still pending', async () => {
-    const ticket = await createTicket(
-      validInput([
-        { name: 'Granita', type: 'solid' },
-        { name: 'Fuchsia Fedora', type: 'solid' },
-      ]),
-    );
-    db.tickets[0].status = 'Completed';
-
-    const [first, second] = ticket.colourVariants;
-    const { ticket: afterFirst } = await approveVariant(ticket.id, first.id, 'Manager');
-
-    expect(afterFirst.status).toBe('Completed');
-    expect(second.decision).toBe('pending');
-
-    const afterSecond = await rejectVariant(ticket.id, second.id, 'Colour is off', 'Manager');
-    expect(afterSecond.status).toBe('Approved');
-  });
-
-  it('derives Rejected when every variant ends up rejected', async () => {
+describe('approveTicket', () => {
+  it('approves a Pending ticket, records one ApprovedPhoto, and clears any prior rejection', async () => {
     const ticket = await createTicket(validInput());
-    db.tickets[0].status = 'Completed';
+    await rejectTicket(ticket.id, 'Wrong tone');
 
-    const result = await rejectVariant(ticket.id, ticket.colourVariants[0].id, 'Wrong tone', 'Manager');
-    expect(result.status).toBe('Rejected');
+    const { ticket: approved, approvedPhoto } = await approveTicket(ticket.id, 'Manager');
+
+    expect(approved.status).toBe('Approved');
+    expect(approved.lastRejectionReason).toBeUndefined();
+    expect(approvedPhoto.ticketId).toBe(ticket.id);
+    expect(approvedPhoto.approvedBy).toBe('Manager');
+    expect(db.approvedPhotos).toHaveLength(1);
   });
 
-  it('creates exactly one ApprovedPhoto per approved variant', async () => {
-    const ticket = await createTicket(
-      validInput([
-        { name: 'Granita', type: 'solid' },
-        { name: 'Fuchsia Fedora', type: 'solid' },
-      ]),
-    );
-    db.tickets[0].status = 'Completed';
-
-    await approveVariant(ticket.id, ticket.colourVariants[0].id, 'Manager');
-    await approveVariant(ticket.id, ticket.colourVariants[1].id, 'Manager');
-
-    expect(db.approvedPhotos).toHaveLength(2);
-    expect(db.approvedPhotos.map((p) => p.variantId)).toEqual(ticket.colourVariants.map((v) => v.id));
-  });
-
-  it('refuses to approve a variant before the ticket is Completed', async () => {
+  it('refuses to approve a ticket that is not Pending', async () => {
     const ticket = await createTicket(validInput());
-    await expect(approveVariant(ticket.id, ticket.colourVariants[0].id, 'Manager')).rejects.toThrow(HttpError);
-  });
-
-  it('refuses to decide the same variant twice', async () => {
-    const ticket = await createTicket(validInput());
-    db.tickets[0].status = 'Completed';
-
-    await approveVariant(ticket.id, ticket.colourVariants[0].id, 'Manager');
-    await expect(approveVariant(ticket.id, ticket.colourVariants[0].id, 'Manager')).rejects.toThrow(HttpError);
+    await approveTicket(ticket.id, 'Manager');
+    await expect(approveTicket(ticket.id, 'Manager')).rejects.toThrow(HttpError);
   });
 });
 
-describe('requeueTicket', () => {
-  it('clears every variant decision and sends a fully-rejected ticket back to Pending', async () => {
+describe('rejectTicket', () => {
+  it('stamps a rejection reason and leaves the ticket Pending', async () => {
     const ticket = await createTicket(validInput());
-    db.tickets[0].status = 'Completed';
-    await rejectVariant(ticket.id, ticket.colourVariants[0].id, 'Wrong tone', 'Manager');
+    const rejected = await rejectTicket(ticket.id, 'Wrong tone');
+    expect(rejected.status).toBe('Pending');
+    expect(rejected.lastRejectionReason).toBe('Wrong tone');
+  });
 
-    const requeued = await requeueTicket(ticket.id);
-
-    expect(requeued.status).toBe('Pending');
-    expect(requeued.colourVariants[0].decision).toBe('pending');
-    expect(requeued.colourVariants[0].decisionReason).toBeUndefined();
-    expect(getTicket(ticket.id).partnerReceipt).toBeUndefined();
+  it('refuses to reject a ticket that is not Pending', async () => {
+    const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
+    await expect(rejectTicket(ticket.id, 'Too late')).rejects.toThrow(HttpError);
   });
 });
 
-describe('requeueVariant', () => {
-  it('reopens only the rejected variant and recomputes the ticket back to Completed', async () => {
-    const ticket = await createTicket(
-      validInput([
-        { name: 'Granita', type: 'solid' },
-        { name: 'Fuchsia Fedora', type: 'solid' },
-      ]),
-    );
-    db.tickets[0].status = 'Completed';
+describe('addColourVariant', () => {
+  it('reopens an Approved ticket to Pending and clears any rejection reason', async () => {
+    const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
 
-    const [first, second] = ticket.colourVariants;
-    await approveVariant(ticket.id, first.id, 'Manager');
-    const afterReject = await rejectVariant(ticket.id, second.id, 'Wrong tone', 'Manager');
-    // Overall ticket resolves to Approved even though one variant was rejected.
-    expect(afterReject.status).toBe('Approved');
+    const updated = await addColourVariant(ticket.id, { name: 'New Colour', type: 'solid', pantone: 'New Colour' });
 
-    const requeued = await requeueVariant(ticket.id, second.id);
-
-    expect(requeued.status).toBe('Completed');
-    const reopened = requeued.colourVariants.find((v) => v.id === second.id)!;
-    expect(reopened.decision).toBe('pending');
-    expect(reopened.decisionReason).toBeUndefined();
-    // The already-approved variant is untouched.
-    expect(requeued.colourVariants.find((v) => v.id === first.id)!.decision).toBe('approved');
+    expect(updated.status).toBe('Pending');
+    expect(updated.colourVariants).toHaveLength(2);
   });
 
-  it('refuses to requeue a variant that was not rejected', async () => {
+  it('refuses to add a colour once the ticket has been sent to the partner', async () => {
     const ticket = await createTicket(validInput());
-    db.tickets[0].status = 'Completed';
-    await approveVariant(ticket.id, ticket.colourVariants[0].id, 'Manager');
+    await approveTicket(ticket.id, 'Manager');
+    await sendToPartner(ticket.id);
 
-    await expect(requeueVariant(ticket.id, ticket.colourVariants[0].id)).rejects.toThrow(HttpError);
+    await expect(
+      addColourVariant(ticket.id, { name: 'New Colour', type: 'solid', pantone: 'New Colour' }),
+    ).rejects.toThrow(HttpError);
   });
 });
 
@@ -204,6 +158,7 @@ describe('sendToPartner acknowledgement timer', () => {
   it('flips a Sent ticket to In Progress once the simulated ack timer fires', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
     await sendToPartner(ticket.id);
     expect(getTicket(ticket.id).status).toBe('Sent');
 
@@ -217,6 +172,7 @@ describe('sendToPartner acknowledgement timer', () => {
   it('simulates a partner rejection receipt instead of only ever succeeding', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.99);
     const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
     await sendToPartner(ticket.id);
 
     await vi.advanceTimersByTimeAsync(5000);
@@ -229,6 +185,7 @@ describe('sendToPartner acknowledgement timer', () => {
   it('leaves the ticket alone if it moved on before the ack timer fires', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
     await sendToPartner(ticket.id);
     await forceAcknowledge(ticket.id);
 
@@ -241,6 +198,7 @@ describe('sendToPartner acknowledgement timer', () => {
 describe('forceAcknowledge', () => {
   it('moves a stuck "Sent" ticket to "In Progress"', async () => {
     const ticket = await createTicket(validInput());
+    await approveTicket(ticket.id, 'Manager');
     await sendToPartner(ticket.id);
 
     const forced = await forceAcknowledge(ticket.id);
@@ -255,30 +213,20 @@ describe('forceAcknowledge', () => {
 });
 
 describe('concurrent mutations', () => {
-  it("does not lose either update when two read-modify-write cycles race on the same ticket", async () => {
-    const ticket = await createTicket(
-      validInput([
-        { name: 'Granita', type: 'solid' },
-        { name: 'Fuchsia Fedora', type: 'solid' },
-      ]),
-    );
-    db.tickets[0].status = 'Completed';
-    const [first, second] = ticket.colourVariants;
+  it('does not let two concurrent approveTicket calls on the same ticket both succeed', async () => {
+    const ticket = await createTicket(validInput());
 
-    // Simulate two concurrent read-modify-write cycles touching the same
-    // ticket (e.g. the partner-ack timer firing while a manager approves).
-    // Both go through `withDb`, so they must be serialized rather than both
-    // reading the same pre-mutation snapshot and one clobbering the other.
-    const [a, b] = await Promise.all([
-      approveVariant(ticket.id, first.id, 'Manager'),
-      rejectVariant(ticket.id, second.id, 'Wrong tone', 'Manager'),
+    // Both go through `withDb`, so they must be serialized: whichever runs
+    // second sees the ticket already Approved and should be refused, rather
+    // than both reading the same pre-mutation snapshot and double-approving.
+    const results = await Promise.allSettled([
+      approveTicket(ticket.id, 'Manager'),
+      approveTicket(ticket.id, 'Manager'),
     ]);
 
-    expect(a.ticket.colourVariants.find((v) => v.id === first.id)!.decision).toBe('approved');
-    expect(b.colourVariants.find((v) => v.id === second.id)!.decision).toBe('rejected');
-
-    const final = getTicket(ticket.id);
-    expect(final.colourVariants.find((v) => v.id === first.id)!.decision).toBe('approved');
-    expect(final.colourVariants.find((v) => v.id === second.id)!.decision).toBe('rejected');
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect(db.approvedPhotos).toHaveLength(1);
+    expect(getTicket(ticket.id).status).toBe('Approved');
   });
 });
