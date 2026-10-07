@@ -3,12 +3,20 @@ import { onMounted } from 'vue'
 import { usePartnersStore } from '../../stores/partners.store'
 import { useTicketsStore } from '../../stores/tickets.store'
 import type { SortBy } from '../../stores/tickets.store'
+import { getTicketOwnership, type TicketOwner } from '../../utils/ticketOwnership'
 
 const STATUSES = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved'] as const
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const
 const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
   { value: 'recent', label: 'Most recent' },
   { value: 'priority', label: 'Priority' },
+]
+const OWNER_OPTIONS: Array<{ value: TicketOwner | undefined; label: string }> = [
+  { value: undefined, label: 'All' },
+  { value: 'Manager', label: 'With: Manager' },
+  { value: 'Operator', label: 'With: Operator' },
+  { value: 'Partner', label: 'With: Partner' },
+  { value: null, label: 'Done' },
 ]
 
 const ticketsStore = useTicketsStore()
@@ -17,9 +25,31 @@ const partnersStore = usePartnersStore()
 onMounted(() => {
   if (!partnersStore.loaded) partnersStore.fetchPartners()
 })
+
+function countFor(owner: TicketOwner | undefined) {
+  if (owner === undefined) return ticketsStore.tickets.length
+  return ticketsStore.tickets.filter((t) => getTicketOwnership(t).owner === owner).length
+}
 </script>
 
 <template>
+  <div class="mb-3 flex flex-wrap items-center gap-2">
+    <button
+      v-for="option in OWNER_OPTIONS"
+      :key="String(option.value)"
+      type="button"
+      class="cursor-pointer rounded-full border px-3 py-1 text-sm font-medium transition-colors"
+      :class="
+        ticketsStore.filters.owner === option.value
+          ? 'border-gray-900 bg-gray-900 text-white'
+          : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-900'
+      "
+      @click="ticketsStore.filters.owner = option.value"
+    >
+      {{ option.label }} ({{ countFor(option.value) }})
+    </button>
+  </div>
+
   <div class="mb-4 flex flex-wrap items-center gap-3">
     <input
       v-model="ticketsStore.filters.search"
@@ -51,7 +81,13 @@ onMounted(() => {
       </option>
     </select>
     <button
-      v-if="ticketsStore.filters.status || ticketsStore.filters.priority || ticketsStore.filters.partnerId || ticketsStore.filters.search"
+      v-if="
+        ticketsStore.filters.status ||
+        ticketsStore.filters.priority ||
+        ticketsStore.filters.partnerId ||
+        ticketsStore.filters.search ||
+        ticketsStore.filters.owner !== undefined
+      "
       type="button"
       class="cursor-pointer text-sm text-gray-500 transition-colors hover:text-gray-900"
       @click="ticketsStore.filters = {}"

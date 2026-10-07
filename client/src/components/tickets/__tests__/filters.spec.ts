@@ -101,6 +101,29 @@ describe('ticket status/priority/partner filters', () => {
     expect(table.text()).not.toContain('p1-ticket')
   })
 
+  it('filters the table by owner via the quick-filter chips', async () => {
+    const ticketsStore = useTicketsStore()
+    ticketsStore.tickets = [
+      makeTicket('pending-1', { status: 'Pending' }), // owner: Manager
+      makeTicket('approved-1', { status: 'Approved' }), // owner: Operator
+    ]
+    ticketsStore.loaded = true
+    usePartnersStore().loaded = true
+
+    const filters = mount(TicketFilters)
+    const table = mount(TicketTable, { props: { tickets: ticketsStore.filteredTickets } })
+
+    const managerChip = filters.findAll('button').find((b) => b.text().startsWith('With: Manager'))
+    expect(managerChip).toBeTruthy()
+    await managerChip!.trigger('click')
+    await table.setProps({ tickets: ticketsStore.filteredTickets })
+
+    const rows = table.findAll('tbody tr')
+    expect(rows.length).toBe(1)
+    expect(table.text()).toContain('pending-1')
+    expect(table.text()).not.toContain('approved-1')
+  })
+
   it('clears all filters via the Clear filters button', async () => {
     const ticketsStore = useTicketsStore()
     ticketsStore.tickets = [makeTicket('a'), makeTicket('b')]

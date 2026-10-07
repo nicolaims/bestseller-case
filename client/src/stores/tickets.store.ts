@@ -3,6 +3,7 @@ import { api, ApiError } from '../api/client'
 import { useApprovedPhotosStore } from './approvedPhotos.store'
 import { useNotificationsStore } from './notifications.store'
 import { usePartnersStore } from './partners.store'
+import { getTicketOwnership, type TicketOwner } from '../utils/ticketOwnership'
 import type { Priority, Ticket, TicketStatus } from '../types'
 
 export interface TicketFilters {
@@ -10,6 +11,7 @@ export interface TicketFilters {
   partnerId?: string
   priority?: Priority
   search?: string
+  owner?: TicketOwner
 }
 
 const STATUS_ORDER: TicketStatus[] = ['Pending', 'Sent', 'In Progress', 'Completed', 'Approved']
@@ -32,6 +34,7 @@ export const useTicketsStore = defineStore('tickets', {
         if (state.filters.status && t.status !== state.filters.status) return false
         if (state.filters.partnerId && t.partnerId !== state.filters.partnerId) return false
         if (state.filters.priority && t.priority !== state.filters.priority) return false
+        if (state.filters.owner !== undefined && getTicketOwnership(t).owner !== state.filters.owner) return false
         if (search && !t.photoId.toLowerCase().includes(search)) return false
         return true
       })
